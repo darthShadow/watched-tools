@@ -1,9 +1,22 @@
 # plex-watched-tools
-Plex Watched Tools
+Plex Watched Tools.
+
+Exports/Imports the following info for TV & Movie Libraries:
+* Watched Status
+* View Count
+* User Rating
+
+Pending Items:
+* [ ] Audiobooks (Music Libraries)
+* [ ] Playlists (https://github.com/pkkid/python-plexapi/issues/551)
+
+### Requirements
+
+* Plex with all libraries using the new TV & Movie agents
+* PlexAPI >= 4.5.1 (Install/Update via: `python3 -m pip install --force -U --user PlexAPI`)
+* Python >= 3.8
 
 ### Usage:
-
-* Install PlexAPI: `python3 -m pip install --force -U --user PlexAPI` (Minimum supported python version is 3.8)
 
 * Copy the included `sample.ini` to `sync.ini` and update the following variables:
     * `src_url`
