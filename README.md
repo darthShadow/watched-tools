@@ -24,6 +24,7 @@ Pending Items:
     * `dst_url`
     * `dst_token`
     * `check_users` (If you want to export/import only specific users)
+    * `watched_history` (If you want to specify a custom location/file)
 
 * Example value of `check_users`: `"abc,xyz,def"` (These must be the usernames of the required users)
 
@@ -37,6 +38,10 @@ Pending Items:
 
 * Set `debug` to `true` in `sync.ini`
 
-* Generated log files:
+* Adjust the log file locations:
+    * `export_log_file`
+    * `import_log_file`
+
+* Default log files:
     * plex-export-watched-history.log
     * plex-import-watched-history.log

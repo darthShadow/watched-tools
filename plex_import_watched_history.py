@@ -21,6 +21,7 @@ import plexapi.exceptions
 PLEX_URL = ""
 PLEX_TOKEN = ""
 WATCHED_HISTORY = ""
+LOG_FILE = ""
 
 
 BATCH_SIZE = 10000
@@ -34,7 +35,6 @@ LOG_FORMAT = \
     " %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG_LEVEL = logging.INFO
-LOG_FILE = "plex-import-watched-history.log"
 
 
 plexapi.server.TIMEOUT = 3600
@@ -55,7 +55,7 @@ def _get_config_str(key):
 
 
 def _load_config():
-    global PLEX_URL, PLEX_TOKEN, WATCHED_HISTORY, LOG_LEVEL, CHECK_USERS
+    global PLEX_URL, PLEX_TOKEN, WATCHED_HISTORY, CHECK_USERS, LOG_FILE, LOG_LEVEL
     if PLEX_URL == "":
         PLEX_URL = _get_config_str("sync.dst_url")
     if PLEX_TOKEN == "":
@@ -65,6 +65,8 @@ def _load_config():
     if len(CHECK_USERS) == 0:
         config_check_users = _get_config_str("sync.check_users").split(",")
         CHECK_USERS = [user.strip() for user in config_check_users if user]
+    if LOG_FILE == "":
+        LOG_FILE = _get_config_str("sync.import_log_file")
     debug = plexapi.utils.cast(bool, _get_config_str("sync.debug").lower())
     if debug:
         LOG_LEVEL = logging.DEBUG
