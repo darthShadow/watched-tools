@@ -385,7 +385,14 @@ def main():
             continue
         logger.info(f"Processing User: {user.username}")
         user_server_token = user.get_token(plex_server.machineIdentifier)
-        user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, timeout=300)
+
+        try:
+            user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, timeout=300)
+        except plexapi.exceptions.Unauthorized:
+            # This should only happen when no libraries are shared
+            logger.warning(f"Skipped User with No Libraries Shared: {user.username}")
+            continue
+
         user_history = _get_user_server_watched_history(user_server)
         user_history['username'] = user.username
         watched_history[user.username] = user_history
