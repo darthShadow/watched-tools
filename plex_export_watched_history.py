@@ -383,7 +383,7 @@ def main():
     logger.info(f"Total Users: {len(plex_users)}")
 
     for user_index, user in enumerate(plex_users):
-        if len(CHECK_USERS) > 0 and user.username not in CHECK_USERS:
+        if len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and user.email not in CHECK_USERS:
             continue
         logger.info(f"Processing User: {user.username}")
         user_server_token = user.get_token(plex_server.machineIdentifier)

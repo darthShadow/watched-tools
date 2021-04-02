@@ -169,7 +169,7 @@ def main():
     logger.info(f"Total Users: {len(plex_users)}")
 
     for user_index, user in enumerate(plex_users):
-        if len(CHECK_USERS) > 0 and user.username not in CHECK_USERS:
+        if len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and user.email not in CHECK_USERS:
             continue
         if user.username not in watched_history:
             logger.warning(f"Missing User from Watched History: {user.username}")
