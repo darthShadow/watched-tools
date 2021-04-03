@@ -16,7 +16,6 @@ import copy
 import json
 import time
 import logging
-import requests
 import collections
 from urllib.parse import urlparse
 
@@ -56,7 +55,6 @@ _MOVIE_RATING_KEY_GUID_MAPPING = {}
 _EPISODE_RATING_KEY_GUID_MAPPING = {}
 
 
-session = requests.Session()
 logger = logging.getLogger("PlexWatchedHistoryExporter")
 
 
@@ -372,7 +370,7 @@ def main():
 
     _setup_logger()
 
-    plex_server = plexapi.server.PlexServer(PLEX_URL, PLEX_TOKEN, session=session, timeout=300)
+    plex_server = plexapi.server.PlexServer(PLEX_URL, PLEX_TOKEN, timeout=300)
     plex_account = plex_server.myPlexAccount()
 
     watched_history = {}
@@ -380,12 +378,26 @@ def main():
     logger.info(f"Starting Export")
 
     plex_users = plex_account.users()
-    logger.info(f"Total Users: {len(plex_users)}")
+    # Owner will be processed separately
+    logger.info(f"Total Users: {len(plex_users) + 1}")
+
+    if not (len(CHECK_USERS) > 0 and plex_account.username not in CHECK_USERS and
+            plex_account.email not in CHECK_USERS):
+
+        logger.info(f"Processing Owner: {plex_account.username}")
+
+        user_history = _get_user_server_watched_history(plex_server)
+        user_history['username'] = plex_account.username
+
+        watched_history[plex_account.username] = user_history
 
     for user_index, user in enumerate(plex_users):
-        if len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and user.email not in CHECK_USERS:
+        if (len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and
+                user.email not in CHECK_USERS):
             continue
+
         logger.info(f"Processing User: {user.username}")
+
         user_server_token = user.get_token(plex_server.machineIdentifier)
 
         try:
@@ -397,6 +409,7 @@ def main():
 
         user_history = _get_user_server_watched_history(user_server)
         user_history['username'] = user.username
+
         watched_history[user.username] = user_history
 
     with open(WATCHED_HISTORY, "w") as watched_history_file:

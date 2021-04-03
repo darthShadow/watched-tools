@@ -8,7 +8,6 @@
 import json
 import time
 import logging
-import requests
 
 import plexapi
 import plexapi.video
@@ -46,7 +45,6 @@ _MOVIE_GUID_RATING_KEY_MAPPING = {}
 _EPISODE_GUID_RATING_KEY_MAPPING = {}
 
 
-session = requests.Session()
 logger = logging.getLogger("PlexWatchedHistoryImporter")
 
 
@@ -157,7 +155,7 @@ def main():
 
     _setup_logger()
 
-    plex_server = plexapi.server.PlexServer(PLEX_URL, PLEX_TOKEN, session=session, timeout=300)
+    plex_server = plexapi.server.PlexServer(PLEX_URL, PLEX_TOKEN, timeout=300)
     plex_account = plex_server.myPlexAccount()
 
     with open(WATCHED_HISTORY, "r") as watched_history_file:
@@ -166,15 +164,28 @@ def main():
     logger.info(f"Starting Import")
 
     plex_users = plex_account.users()
-    logger.info(f"Total Users: {len(plex_users)}")
+    # Owner will be processed separately
+    logger.info(f"Total Users: {len(plex_users) + 1}")
+
+    if not (len(CHECK_USERS) > 0 and plex_account.username not in CHECK_USERS and
+            plex_account.email not in CHECK_USERS):
+
+        logger.info(f"Processing Owner: {plex_account.username}")
+
+        user_history = watched_history[plex_account.username]
+        _set_user_server_watched_history(plex_server, user_history)
 
     for user_index, user in enumerate(plex_users):
-        if len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and user.email not in CHECK_USERS:
+        if (len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and
+                user.email not in CHECK_USERS):
             continue
+
         if user.username not in watched_history:
             logger.warning(f"Missing User from Watched History: {user.username}")
             continue
+
         logger.info(f"Processing User: {user.username}")
+
         user_server_token = user.get_token(plex_server.machineIdentifier)
 
         try:
