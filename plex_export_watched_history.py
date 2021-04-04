@@ -135,6 +135,20 @@ def _cast(func, value):
     return value
 
 
+def _get_username(user):
+    username = _cast(str, user.username)
+    # Username not set
+    if username == "":
+        username = _cast(str, user.email)
+    # Plex Home or Managed Users don't require username/email
+    if username == "":
+        username = _cast(str, user.title)
+    # Last fallback
+    if username == "":
+        username = _cast(str, user.id)
+    return username
+
+
 def _get_guid(rating_key_guid_mapping, item):
     if item.ratingKey in rating_key_guid_mapping:
         item_guid = rating_key_guid_mapping[item.ratingKey]
@@ -382,21 +396,29 @@ def main():
     logger.info(f"Total Users: {len(plex_users) + 1}")
 
     if not (len(CHECK_USERS) > 0 and plex_account.username not in CHECK_USERS and
-            plex_account.email not in CHECK_USERS):
+            plex_account.email not in CHECK_USERS and plex_account.title not in CHECK_USERS):
 
-        logger.info(f"Processing Owner: {plex_account.username}")
+        username = _get_username(plex_account)
+
+        logger.info(f"Processing Owner: {username}")
 
         user_history = _get_user_server_watched_history(plex_server)
-        user_history['username'] = plex_account.username
+        user_history['username'] = username
 
-        watched_history[plex_account.username] = user_history
+        watched_history[username] = user_history
 
     for user_index, user in enumerate(plex_users):
+        # TODO: Check for collisions
         if (len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and
-                user.email not in CHECK_USERS):
+                user.email not in CHECK_USERS and user.title not in CHECK_USERS):
             continue
 
-        logger.info(f"Processing User: {user.username}")
+        username = _get_username(user)
+        if username == "":
+            logger.warning(f"Skipped User with Empty Username: {user}")
+            continue
+
+        logger.info(f"Processing User: {username}")
 
         user_server_token = user.get_token(plex_server.machineIdentifier)
 
@@ -404,13 +426,13 @@ def main():
             user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, timeout=300)
         except plexapi.exceptions.Unauthorized:
             # This should only happen when no libraries are shared
-            logger.warning(f"Skipped User with No Libraries Shared: {user.username}")
+            logger.warning(f"Skipped User with No Libraries Shared: {username}")
             continue
 
         user_history = _get_user_server_watched_history(user_server)
-        user_history['username'] = user.username
+        user_history['username'] = username
 
-        watched_history[user.username] = user_history
+        watched_history[username] = user_history
 
     with open(WATCHED_HISTORY, "w") as watched_history_file:
         json.dump(watched_history, watched_history_file, sort_keys=True, indent=4)
