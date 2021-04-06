@@ -134,9 +134,14 @@ def _set_movie_section_watched_history(server, movie_history):
                 for _ in range(movie_item_history['viewCount'] - item.viewCount):
                     logger.debug(f"Watching Movie: {item.title}")
                     item.markWatched()
-            if movie_item_history['viewOffset'] != 0:
-                logger.debug(f"Updating Movie Timeline: {item.title}: {movie_item_history['viewOffset']}")
-                item.updateTimeline(movie_item_history['viewOffset'])
+            if movie_item_history.get("viewPercent", 0.0) > 0.0:
+                view_offset = item.duration * movie_item_history['viewPercent']
+                logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
+                item.updateTimeline(view_offset)
+            elif movie_item_history['viewOffset'] != 0:
+                view_offset = movie_item_history['viewOffset']
+                logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
+                item.updateTimeline(view_offset)
             if movie_item_history['userRating'] != "":
                 logger.debug(f"Rating Movie: {item.title}: {movie_item_history['userRating']}")
                 item.rate(movie_item_history['userRating'])
@@ -164,9 +169,14 @@ def _set_show_section_watched_history(server, show_history):
                     for _ in range(episode_item_history['viewCount'] - item.viewCount):
                         logger.debug(f"Watching Episode: {item.title}")
                         item.markWatched()
-                if episode_item_history['viewOffset'] != 0:
-                    logger.debug(f"Updating Episode Timeline: {item.title}: {episode_item_history['viewOffset']}")
-                    item.updateTimeline(episode_item_history['viewOffset'])
+                if episode_item_history.get("viewPercent", 0.0) > 0.0:
+                    view_offset = item.duration * episode_item_history['viewPercent']
+                    logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
+                    item.updateTimeline(view_offset)
+                elif episode_item_history['viewOffset'] != 0:
+                    view_offset = episode_item_history['viewOffset']
+                    logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
+                    item.updateTimeline(view_offset)
                 if episode_item_history['userRating'] != "":
                     logger.debug(f"Rating Episode: {item.title}: {episode_item_history['userRating']}")
                     item.rate(episode_item_history['userRating'])
