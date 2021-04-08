@@ -87,6 +87,33 @@ def _setup_logger():
     logger.addHandler(file_handler)
 
 
+def _cast(func, value):
+    if value is None:
+        return func()
+
+    if func == str:
+        return str(value)
+
+    if not isinstance(value, func):
+        raise ValueError(value)
+
+    return value
+
+
+def _get_username(user):
+    username = _cast(str, user.username)
+    # Username not set
+    if username == "":
+        username = _cast(str, user.email)
+    # Plex Home or Managed Users don't require username/email
+    if username == "":
+        username = _cast(str, user.title)
+    # Last fallback
+    if username == "":
+        username = _cast(str, user.id)
+    return username
+
+
 def _get_rating_keys(server, rating_key_guid_mapping, guid):
     if guid not in rating_key_guid_mapping:
         items = server.library.search(guid=guid)
@@ -107,9 +134,14 @@ def _set_movie_section_watched_history(server, movie_history):
                 for _ in range(movie_item_history['viewCount'] - item.viewCount):
                     logger.debug(f"Watching Movie: {item.title}")
                     item.markWatched()
-            if movie_item_history['viewOffset'] != 0:
-                logger.debug(f"Updating Movie Timeline: {item.title}: {movie_item_history['viewOffset']}")
-                item.updateTimeline(movie_item_history['viewOffset'])
+            if movie_item_history.get("viewPercent", 0.0) > 0.0:
+                view_offset = item.duration * movie_item_history['viewPercent']
+                logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
+                item.updateTimeline(view_offset)
+            elif movie_item_history['viewOffset'] != 0:
+                view_offset = movie_item_history['viewOffset']
+                logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
+                item.updateTimeline(view_offset)
             if movie_item_history['userRating'] != "":
                 logger.debug(f"Rating Movie: {item.title}: {movie_item_history['userRating']}")
                 item.rate(movie_item_history['userRating'])
@@ -137,9 +169,14 @@ def _set_show_section_watched_history(server, show_history):
                     for _ in range(episode_item_history['viewCount'] - item.viewCount):
                         logger.debug(f"Watching Episode: {item.title}")
                         item.markWatched()
-                if episode_item_history['viewOffset'] != 0:
-                    logger.debug(f"Updating Episode Timeline: {item.title}: {episode_item_history['viewOffset']}")
-                    item.updateTimeline(episode_item_history['viewOffset'])
+                if episode_item_history.get("viewPercent", 0.0) > 0.0:
+                    view_offset = item.duration * episode_item_history['viewPercent']
+                    logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
+                    item.updateTimeline(view_offset)
+                elif episode_item_history['viewOffset'] != 0:
+                    view_offset = episode_item_history['viewOffset']
+                    logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
+                    item.updateTimeline(view_offset)
                 if episode_item_history['userRating'] != "":
                     logger.debug(f"Rating Episode: {item.title}: {episode_item_history['userRating']}")
                     item.rate(episode_item_history['userRating'])
@@ -168,23 +205,33 @@ def main():
     logger.info(f"Total Users: {len(plex_users) + 1}")
 
     if not (len(CHECK_USERS) > 0 and plex_account.username not in CHECK_USERS and
-            plex_account.email not in CHECK_USERS):
+            plex_account.email not in CHECK_USERS and plex_account.title not in CHECK_USERS):
 
-        logger.info(f"Processing Owner: {plex_account.username}")
+        username = _get_username(plex_account)
 
-        user_history = watched_history[plex_account.username]
+        logger.info(f"Processing Owner: {username}")
+
+        user_history = watched_history[username]
         _set_user_server_watched_history(plex_server, user_history)
 
     for user_index, user in enumerate(plex_users):
+        # TODO: Check for collisions
         if (len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and
-                user.email not in CHECK_USERS):
+                user.email not in CHECK_USERS and user.title not in CHECK_USERS):
             continue
 
-        if user.username not in watched_history:
-            logger.warning(f"Missing User from Watched History: {user.username}")
+        username = _get_username(user)
+        if username == "":
+            logger.warning(f"Skipped User with Empty Username: {user}")
             continue
 
-        logger.info(f"Processing User: {user.username}")
+        logger.info(f"Processing User: {username}")
+
+        if username not in watched_history:
+            logger.warning(f"Missing User from Watched History: {username}")
+            continue
+
+        logger.info(f"Processing User: {username}")
 
         user_server_token = user.get_token(plex_server.machineIdentifier)
 
@@ -192,10 +239,10 @@ def main():
             user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, timeout=300)
         except plexapi.exceptions.Unauthorized:
             # This should only happen when no libraries are shared
-            logger.warning(f"Skipped User with No Libraries Shared: {user.username}")
+            logger.warning(f"Skipped User with No Libraries Shared: {username}")
             continue
 
-        user_history = watched_history[user.username]
+        user_history = watched_history[username]
         _set_user_server_watched_history(user_server, user_history)
 
     logger.info(f"Completed Import")

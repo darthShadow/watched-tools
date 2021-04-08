@@ -135,6 +135,20 @@ def _cast(func, value):
     return value
 
 
+def _get_username(user):
+    username = _cast(str, user.username)
+    # Username not set
+    if username == "":
+        username = _cast(str, user.email)
+    # Plex Home or Managed Users don't require username/email
+    if username == "":
+        username = _cast(str, user.title)
+    # Last fallback
+    if username == "":
+        username = _cast(str, user.id)
+    return username
+
+
 def _get_guid(rating_key_guid_mapping, item):
     if item.ratingKey in rating_key_guid_mapping:
         item_guid = rating_key_guid_mapping[item.ratingKey]
@@ -142,6 +156,10 @@ def _get_guid(rating_key_guid_mapping, item):
         item_guid = item.guid
         rating_key_guid_mapping[item.ratingKey] = item_guid
     return item_guid
+
+
+def _get_view_percent(offset, duration):
+    return round(float(offset / duration), 2)
 
 
 def _tv_item_iterator(plex_section, start, batch_size):
@@ -249,6 +267,9 @@ def _get_movie_section_watched_history(section, movie_history):
         # movie.reload(checkFiles=False)
         if urlparse(movie_guid).scheme != 'plex':
             continue
+        if not movie.duration > 0:
+            logger.warning(f"Invalid Movie Duration: {movie.title}: {movie.duration}")
+            continue
         if movie.isWatched:
             logger.debug(f"Fully Watched Movie: {movie.title} [{movie_guid}]")
             movie_history[movie_guid].update({
@@ -257,7 +278,9 @@ def _get_movie_section_watched_history(section, movie_history):
                 'watched': _cast(bool, movie.isWatched),
                 'viewCount': _cast(int, movie.viewCount),
                 'viewOffset': _cast(int, movie.viewOffset),
-                'userRating': _cast(str, movie.userRating)
+                'userRating': _cast(str, movie.userRating),
+                'viewPercent': _get_view_percent(_cast(int, movie.viewOffset),
+                                                 _cast(int, movie.duration)),
             })
         else:
             logger.debug(f"Partially Watched Movie: {movie.title} [{movie_guid}]")
@@ -273,7 +296,9 @@ def _get_movie_section_watched_history(section, movie_history):
                 'watched': _cast(bool, movie.isWatched),
                 'viewCount': _cast(int, movie.viewCount),
                 'viewOffset': _cast(int, movie.viewOffset),
-                'userRating': _cast(str, movie.userRating)
+                'userRating': _cast(str, movie.userRating),
+                'viewPercent': _get_view_percent(_cast(int, movie.viewOffset),
+                                                 _cast(int, movie.duration)),
             })
 
 
@@ -297,6 +322,9 @@ def _get_show_section_watched_history(section, show_history):
             for episode in show.episodes(viewCount__gt=0):
                 episode_guid = _get_guid(_EPISODE_RATING_KEY_GUID_MAPPING, episode)
                 logger.debug(f"Fully Watched Episode: {episode.title} [{episode_guid}]")
+                if not episode.duration > 0:
+                    logger.warning(f"Invalid Episode Duration: {episode.title}: {episode.duration}")
+                    continue
                 show_item_history['episodes'][episode_guid].update({
                     'guid': _cast(str, episode_guid),
                     'title': _cast(str, episode.title),
@@ -304,6 +332,8 @@ def _get_show_section_watched_history(section, show_history):
                     'viewCount': _cast(int, episode.viewCount),
                     'viewOffset': _cast(int, episode.viewOffset),
                     'userRating': _cast(str, episode.userRating),
+                    'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
+                                                     _cast(int, episode.duration)),
                 })
         else:
             logger.debug(f"Partially Watched Show: {show.title} [{show_guid}]")
@@ -322,6 +352,9 @@ def _get_show_section_watched_history(section, show_history):
             for episode in show.episodes(viewCount__gt=0):
                 episode_guid = _get_guid(_EPISODE_RATING_KEY_GUID_MAPPING, episode)
                 logger.debug(f"Fully Watched Episode: {episode.title} [{episode_guid}]")
+                if not episode.duration > 0:
+                    logger.warning(f"Invalid Episode Duration: {episode.title}: {episode.duration}")
+                    continue
                 show_item_history['episodes'][episode_guid].update({
                     'guid': _cast(str, episode_guid),
                     'title': _cast(str, episode.title),
@@ -329,10 +362,15 @@ def _get_show_section_watched_history(section, show_history):
                     'viewCount': _cast(int, episode.viewCount),
                     'viewOffset': _cast(int, episode.viewOffset),
                     'userRating': _cast(str, episode.userRating),
+                    'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
+                                                     _cast(int, episode.duration)),
                 })
             for episode in show.episodes(viewOffset__gt=0):
                 episode_guid = _get_guid(_EPISODE_RATING_KEY_GUID_MAPPING, episode)
                 logger.debug(f"Partially Watched Episode: {episode.title} [{episode_guid}]")
+                if not episode.duration > 0:
+                    logger.warning(f"Invalid Episode Duration: {episode.title}: {episode.duration}")
+                    continue
                 show_item_history['episodes'][episode_guid].update({
                     'guid': _cast(str, episode_guid),
                     'title': _cast(str, episode.title),
@@ -340,6 +378,8 @@ def _get_show_section_watched_history(section, show_history):
                     'viewCount': _cast(int, episode.viewCount),
                     'viewOffset': _cast(int, episode.viewOffset),
                     'userRating': _cast(str, episode.userRating),
+                    'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
+                                                     _cast(int, episode.duration)),
                 })
         show_history[show_guid] = show_item_history
 
@@ -382,21 +422,29 @@ def main():
     logger.info(f"Total Users: {len(plex_users) + 1}")
 
     if not (len(CHECK_USERS) > 0 and plex_account.username not in CHECK_USERS and
-            plex_account.email not in CHECK_USERS):
+            plex_account.email not in CHECK_USERS and plex_account.title not in CHECK_USERS):
 
-        logger.info(f"Processing Owner: {plex_account.username}")
+        username = _get_username(plex_account)
+
+        logger.info(f"Processing Owner: {username}")
 
         user_history = _get_user_server_watched_history(plex_server)
-        user_history['username'] = plex_account.username
+        user_history['username'] = username
 
-        watched_history[plex_account.username] = user_history
+        watched_history[username] = user_history
 
     for user_index, user in enumerate(plex_users):
+        # TODO: Check for collisions
         if (len(CHECK_USERS) > 0 and user.username not in CHECK_USERS and
-                user.email not in CHECK_USERS):
+                user.email not in CHECK_USERS and user.title not in CHECK_USERS):
             continue
 
-        logger.info(f"Processing User: {user.username}")
+        username = _get_username(user)
+        if username == "":
+            logger.warning(f"Skipped User with Empty Username: {user}")
+            continue
+
+        logger.info(f"Processing User: {username}")
 
         user_server_token = user.get_token(plex_server.machineIdentifier)
 
@@ -404,13 +452,13 @@ def main():
             user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, timeout=300)
         except plexapi.exceptions.Unauthorized:
             # This should only happen when no libraries are shared
-            logger.warning(f"Skipped User with No Libraries Shared: {user.username}")
+            logger.warning(f"Skipped User with No Libraries Shared: {username}")
             continue
 
         user_history = _get_user_server_watched_history(user_server)
-        user_history['username'] = user.username
+        user_history['username'] = username
 
-        watched_history[user.username] = user_history
+        watched_history[username] = user_history
 
     with open(WATCHED_HISTORY, "w") as watched_history_file:
         json.dump(watched_history, watched_history_file, sort_keys=True, indent=4)
