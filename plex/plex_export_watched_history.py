@@ -265,7 +265,7 @@ def _get_movie_section_watched_history(section, movie_history):
         movie_guid = _get_guid(_MOVIE_RATING_KEY_GUID_MAPPING, movie)
         # TODO: Check if reload is necessary
         # movie.reload(checkFiles=False)
-        if urlparse(movie_guid).scheme != 'plex':
+        if urlparse(movie_guid).scheme != "plex":
             continue
         if not movie.duration > 0:
             logger.warning(f"Invalid Movie Duration: {movie.title}: {movie.duration}")
@@ -308,7 +308,7 @@ def _get_show_section_watched_history(section, show_history):
         show_guid = _get_guid(_SHOW_RATING_KEY_GUID_MAPPING, show)
         # TODO: Check if reload is necessary
         # show.reload(checkFiles=False)
-        if urlparse(show_guid).scheme != 'plex':
+        if urlparse(show_guid).scheme != "plex":
             continue
         show_item_history = show_history[show_guid]
         if show.isWatched:
