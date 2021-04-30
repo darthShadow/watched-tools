@@ -127,6 +127,9 @@ def _set_movie_section_watched_history(server, movie_history):
         rating_keys = _get_rating_keys(server, _MOVIE_GUID_RATING_KEY_MAPPING, movie_guid)
         for rating_key in rating_keys:
             item = server.fetchItem(rating_key)
+            if not _cast(int, item.duration) > 0:
+                logger.warning(f"Invalid Movie Duration: {item.title}: {item.duration}")
+                continue
             if movie_item_history['watched'] and not item.isWatched:
                 logger.debug(f"Watching Movie: {item.title}")
                 item.markWatched()
@@ -162,6 +165,9 @@ def _set_show_section_watched_history(server, show_history):
             rating_keys = _get_rating_keys(server, _EPISODE_GUID_RATING_KEY_MAPPING, episode_guid)
             for rating_key in rating_keys:
                 item = server.fetchItem(rating_key)
+                if not _cast(int, item.duration) > 0:
+                    logger.warning(f"Invalid Episode Duration: {item.title}: {item.duration}")
+                    continue
                 if episode_item_history['watched'] and not item.isWatched:
                     logger.debug(f"Watching Episode: {item.title}")
                     item.markWatched()

@@ -265,9 +265,10 @@ def _get_movie_section_watched_history(section, movie_history):
         movie_guid = _get_guid(_MOVIE_RATING_KEY_GUID_MAPPING, movie)
         # TODO: Check if reload is necessary
         # movie.reload(checkFiles=False)
-        if urlparse(movie_guid).scheme != 'plex':
+        if urlparse(movie_guid).scheme != "plex":
             continue
-        if not movie.duration > 0:
+        movie_duration = _cast(int, movie.duration)
+        if not movie_duration > 0:
             logger.warning(f"Invalid Movie Duration: {movie.title}: {movie.duration}")
             continue
         if movie.isWatched:
@@ -280,7 +281,7 @@ def _get_movie_section_watched_history(section, movie_history):
                 'viewOffset': _cast(int, movie.viewOffset),
                 'userRating': _cast(str, movie.userRating),
                 'viewPercent': _get_view_percent(_cast(int, movie.viewOffset),
-                                                 _cast(int, movie.duration)),
+                                                 movie_duration),
             })
         else:
             logger.debug(f"Partially Watched Movie: {movie.title} [{movie_guid}]")
@@ -298,7 +299,7 @@ def _get_movie_section_watched_history(section, movie_history):
                 'viewOffset': _cast(int, movie.viewOffset),
                 'userRating': _cast(str, movie.userRating),
                 'viewPercent': _get_view_percent(_cast(int, movie.viewOffset),
-                                                 _cast(int, movie.duration)),
+                                                 movie_duration),
             })
 
 
@@ -308,7 +309,7 @@ def _get_show_section_watched_history(section, show_history):
         show_guid = _get_guid(_SHOW_RATING_KEY_GUID_MAPPING, show)
         # TODO: Check if reload is necessary
         # show.reload(checkFiles=False)
-        if urlparse(show_guid).scheme != 'plex':
+        if urlparse(show_guid).scheme != "plex":
             continue
         show_item_history = show_history[show_guid]
         if show.isWatched:
@@ -322,7 +323,8 @@ def _get_show_section_watched_history(section, show_history):
             for episode in show.episodes(viewCount__gt=0):
                 episode_guid = _get_guid(_EPISODE_RATING_KEY_GUID_MAPPING, episode)
                 logger.debug(f"Fully Watched Episode: {episode.title} [{episode_guid}]")
-                if not episode.duration > 0:
+                episode_duration = _cast(int, episode.duration)
+                if not episode_duration > 0:
                     logger.warning(f"Invalid Episode Duration: {episode.title}: {episode.duration}")
                     continue
                 show_item_history['episodes'][episode_guid].update({
@@ -333,7 +335,7 @@ def _get_show_section_watched_history(section, show_history):
                     'viewOffset': _cast(int, episode.viewOffset),
                     'userRating': _cast(str, episode.userRating),
                     'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
-                                                     _cast(int, episode.duration)),
+                                                     episode_duration),
                 })
         else:
             logger.debug(f"Partially Watched Show: {show.title} [{show_guid}]")
@@ -352,7 +354,8 @@ def _get_show_section_watched_history(section, show_history):
             for episode in show.episodes(viewCount__gt=0):
                 episode_guid = _get_guid(_EPISODE_RATING_KEY_GUID_MAPPING, episode)
                 logger.debug(f"Fully Watched Episode: {episode.title} [{episode_guid}]")
-                if not episode.duration > 0:
+                episode_duration = _cast(int, episode.duration)
+                if not episode_duration > 0:
                     logger.warning(f"Invalid Episode Duration: {episode.title}: {episode.duration}")
                     continue
                 show_item_history['episodes'][episode_guid].update({
@@ -363,12 +366,13 @@ def _get_show_section_watched_history(section, show_history):
                     'viewOffset': _cast(int, episode.viewOffset),
                     'userRating': _cast(str, episode.userRating),
                     'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
-                                                     _cast(int, episode.duration)),
+                                                     episode_duration),
                 })
             for episode in show.episodes(viewOffset__gt=0):
                 episode_guid = _get_guid(_EPISODE_RATING_KEY_GUID_MAPPING, episode)
                 logger.debug(f"Partially Watched Episode: {episode.title} [{episode_guid}]")
-                if not episode.duration > 0:
+                episode_duration = _cast(int, episode.duration)
+                if not episode_duration > 0:
                     logger.warning(f"Invalid Episode Duration: {episode.title}: {episode.duration}")
                     continue
                 show_item_history['episodes'][episode_guid].update({
@@ -379,7 +383,7 @@ def _get_show_section_watched_history(section, show_history):
                     'viewOffset': _cast(int, episode.viewOffset),
                     'userRating': _cast(str, episode.userRating),
                     'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
-                                                     _cast(int, episode.duration)),
+                                                     episode_duration),
                 })
         show_history[show_guid] = show_item_history
 
