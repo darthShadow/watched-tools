@@ -47,7 +47,7 @@ LOG_LEVEL = logging.INFO
 
 plexapi.server.TIMEOUT = 60
 plexapi.server.X_PLEX_CONTAINER_SIZE = 100
-plexapi.base.DONT_RELOAD_FOR_KEYS.update({'guid', 'guids', 'userRating', 'viewCount', 'viewOffset'})
+plexapi.base.DONT_RELOAD_FOR_KEYS.update({'guid', 'guids', 'duration', 'title', 'userRating', 'viewCount', 'viewOffset'})
 
 _SHOW_RATING_KEY_GUID_MAPPING = {}
 _MOVIE_RATING_KEY_GUID_MAPPING = {}
