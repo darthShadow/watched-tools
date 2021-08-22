@@ -11,7 +11,6 @@ Metadata to be handled:
 
 """
 
-
 import copy
 import json
 import time
@@ -19,25 +18,26 @@ import logging
 import collections
 from urllib.parse import urlparse
 
+import requests
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
 import plexapi
+import plexapi.base
 import plexapi.video
 import plexapi.myplex
 import plexapi.server
 import plexapi.library
 import plexapi.exceptions
 
-
 PLEX_URL = ""
 PLEX_TOKEN = ""
 WATCHED_HISTORY = ""
 LOG_FILE = ""
 
-
-BATCH_SIZE = 10000
 PLEX_REQUESTS_SLEEP = 0
 CHECK_USERS = [
 ]
-
 
 LOG_FORMAT = \
     "[%(name)s][%(process)05d][%(asctime)s][%(levelname)-8s][%(funcName)-15s]" \
@@ -45,18 +45,15 @@ LOG_FORMAT = \
 LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG_LEVEL = logging.INFO
 
-
-plexapi.server.TIMEOUT = 3600
-plexapi.server.X_PLEX_CONTAINER_SIZE = 2500
-
+plexapi.server.TIMEOUT = 60
+plexapi.server.X_PLEX_CONTAINER_SIZE = 100
+plexapi.base.DONT_RELOAD_FOR_KEYS.update({'guid', 'guids', 'duration', 'title', 'userRating', 'viewCount', 'viewOffset'})
 
 _SHOW_RATING_KEY_GUID_MAPPING = {}
 _MOVIE_RATING_KEY_GUID_MAPPING = {}
 _EPISODE_RATING_KEY_GUID_MAPPING = {}
 
-
 logger = logging.getLogger("PlexWatchedHistoryExporter")
-
 
 SHOW_HISTORY = {
     'guid': "",
@@ -122,6 +119,22 @@ def _setup_logger():
     logger.addHandler(file_handler)
 
 
+def _get_session():
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=10,
+        backoff_factor=10,
+        raise_on_status=True,
+        allowed_methods=["GET"],
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    session_adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=2,
+                                  pool_maxsize=2, pool_block=True)
+    session.mount('http://', session_adapter)
+    session.mount('https://', session_adapter)
+    return session
+
+
 def _cast(func, value):
     if value is None:
         return func()
@@ -162,8 +175,7 @@ def _get_view_percent(offset, duration):
     return round(float(offset / duration), 2)
 
 
-def _tv_item_iterator(plex_section, start, batch_size):
-
+def _tv_item_iterator(plex_section):
     libtype = "show"
 
     # Get shows that have been fully watched
@@ -171,13 +183,19 @@ def _tv_item_iterator(plex_section, start, batch_size):
 
     items = plex_section.search(
         libtype=libtype,
-        container_start=start,
-        maxresults=batch_size,
         **watched_kwargs
     )
 
     for item in items:
         logger.debug(f"Fully Watched Show: {item.title}")
+        item.reload(
+            checkFiles=False, includeAllConcerts=False, includeBandwidths=False,
+            includeChapters=False, includeChildren=False, includeConcerts=False,
+            includeExternalMedia=False, includeExtras=False, includeFields='',
+            includeGeolocation=False, includeLoudnessRamps=False, includeMarkers=False,
+            includeOnDeck=False, includePopularLeaves=False, includePreferences=False,
+            includeRelated=False, includeRelatedCount=0, includeReviews=False,
+            includeStations=False)
         yield item
 
     # Get shows have have not been fully watched but have episodes have been fully watched
@@ -187,13 +205,19 @@ def _tv_item_iterator(plex_section, start, batch_size):
 
     items = plex_section.search(
         libtype=libtype,
-        container_start=start,
-        maxresults=batch_size,
         **partially_watched_kwargs
     )
 
     for item in items:
         logger.debug(f"Partially Watched Show with Fully Watched Episodes: {item.title}")
+        item.reload(
+            checkFiles=False, includeAllConcerts=False, includeBandwidths=False,
+            includeChapters=False, includeChildren=False, includeConcerts=False,
+            includeExternalMedia=False, includeExtras=False, includeFields='',
+            includeGeolocation=False, includeLoudnessRamps=False, includeMarkers=False,
+            includeOnDeck=False, includePopularLeaves=False, includePreferences=False,
+            includeRelated=False, includeRelatedCount=0, includeReviews=False,
+            includeStations=False)
         yield item
 
     # Get shows have have not been fully watched and have no episodes that have been fully
@@ -203,68 +227,74 @@ def _tv_item_iterator(plex_section, start, batch_size):
 
     items = plex_section.search(
         libtype=libtype,
-        container_start=start,
-        maxresults=batch_size,
         **partially_watched_kwargs
     )
 
     for item in items:
         logger.debug(f"Partially Watched Show with Partially Watched Episodes: {item.title}")
+        item.reload(
+            checkFiles=False, includeAllConcerts=False, includeBandwidths=False,
+            includeChapters=False, includeChildren=False, includeConcerts=False,
+            includeExternalMedia=False, includeExtras=False, includeFields='',
+            includeGeolocation=False, includeLoudnessRamps=False, includeMarkers=False,
+            includeOnDeck=False, includePopularLeaves=False, includePreferences=False,
+            includeRelated=False, includeRelatedCount=0, includeReviews=False,
+            includeStations=False)
         yield item
 
 
-def _movie_item_iterator(plex_section, start, batch_size):
-
+def _movie_item_iterator(plex_section):
     libtype = "movie"
     watched_kwargs = {'movie.viewCount!=': 0}
     partially_watched_kwargs = {'movie.viewCount=': 0, 'movie.inProgress': True}
 
     items = plex_section.search(
         libtype=libtype,
-        container_start=start,
-        maxresults=batch_size,
         **watched_kwargs
     )
 
     for item in items:
+        item.reload(
+            checkFiles=False, includeAllConcerts=False, includeBandwidths=False,
+            includeChapters=False, includeChildren=False, includeConcerts=False,
+            includeExternalMedia=False, includeExtras=False, includeFields='',
+            includeGeolocation=False, includeLoudnessRamps=False, includeMarkers=False,
+            includeOnDeck=False, includePopularLeaves=False, includePreferences=False,
+            includeRelated=False, includeRelatedCount=0, includeReviews=False,
+            includeStations=False)
         yield item
 
     items = plex_section.search(
         libtype=libtype,
-        container_start=start,
-        maxresults=batch_size,
         **partially_watched_kwargs
     )
 
     for item in items:
+        item.reload(
+            checkFiles=False, includeAllConcerts=False, includeBandwidths=False,
+            includeChapters=False, includeChildren=False, includeConcerts=False,
+            includeExternalMedia=False, includeExtras=False, includeFields='',
+            includeGeolocation=False, includeLoudnessRamps=False, includeMarkers=False,
+            includeOnDeck=False, includePopularLeaves=False, includePreferences=False,
+            includeRelated=False, includeRelatedCount=0, includeReviews=False,
+            includeStations=False)
         yield item
 
 
-def _batch_get(plex_section, batch_size):
-
-    start = 0
-
-    while True:
-        if start >= plex_section.totalSize:
-            break
-
-        if isinstance(plex_section, plexapi.library.ShowSection):
-            yield from _tv_item_iterator(plex_section, start, batch_size)
-        elif isinstance(plex_section, plexapi.library.MovieSection):
-            yield from _movie_item_iterator(plex_section, start, batch_size)
-        else:
-            logger.warning(f"Skipping Un-processable Section: {plex_section.title} [{plex_section.type}]")
-            return
-
-        start = start + 1 + batch_size
+def _batch_get(plex_section):
+    if isinstance(plex_section, plexapi.library.ShowSection):
+        yield from _tv_item_iterator(plex_section)
+    elif isinstance(plex_section, plexapi.library.MovieSection):
+        yield from _movie_item_iterator(plex_section)
+    else:
+        logger.warning(f"Skipping Un-processable Section: {plex_section.title} [{plex_section.type}]")
+        return
 
 
 def _get_movie_section_watched_history(section, movie_history):
-    movies_watched_history = _batch_get(section, BATCH_SIZE)
+    movies_watched_history = _batch_get(section)
     for movie in movies_watched_history:
         movie_guid = _get_guid(_MOVIE_RATING_KEY_GUID_MAPPING, movie)
-        # TODO: Check if reload is necessary
-        # movie.reload(checkFiles=False)
         if urlparse(movie_guid).scheme != "plex":
             continue
         movie_duration = _cast(int, movie.duration)
@@ -304,11 +334,9 @@ def _get_movie_section_watched_history(section, movie_history):
 
 
 def _get_show_section_watched_history(section, show_history):
-    shows_watched_history = _batch_get(section, BATCH_SIZE)
+    shows_watched_history = _batch_get(section)
     for show in shows_watched_history:
         show_guid = _get_guid(_SHOW_RATING_KEY_GUID_MAPPING, show)
-        # TODO: Check if reload is necessary
-        # show.reload(checkFiles=False)
         if urlparse(show_guid).scheme != "plex":
             continue
         show_item_history = show_history[show_guid]
@@ -414,7 +442,8 @@ def main():
 
     _setup_logger()
 
-    plex_server = plexapi.server.PlexServer(PLEX_URL, PLEX_TOKEN, timeout=300)
+    session = _get_session()
+    plex_server = plexapi.server.PlexServer(PLEX_URL, PLEX_TOKEN, session=session, timeout=60)
     plex_account = plex_server.myPlexAccount()
 
     watched_history = {}
@@ -427,7 +456,6 @@ def main():
 
     if not (len(CHECK_USERS) > 0 and plex_account.username not in CHECK_USERS and
             plex_account.email not in CHECK_USERS and plex_account.title not in CHECK_USERS):
-
         username = _get_username(plex_account)
 
         logger.info(f"Processing Owner: {username}")
@@ -453,7 +481,8 @@ def main():
         user_server_token = user.get_token(plex_server.machineIdentifier)
 
         try:
-            user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, timeout=300)
+            session = _get_session()
+            user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, session=session, timeout=60)
         except plexapi.exceptions.Unauthorized:
             # This should only happen when no libraries are shared
             logger.warning(f"Skipped User with No Libraries Shared: {username}")
