@@ -13,7 +13,7 @@ Pending Items:
 ### Requirements
 
 * Plex with all libraries using the new TV & Movie agents
-* PlexAPI >= 4.5.1 (Install/Update via: `python3 -m pip install --force -U --user PlexAPI`)
+* PlexAPI >= 4.5.1 (Install/Update via: `python3 -m pip install --force -U --user PlexAPI==4.5.2`)
 * Python >= 3.8
 
 ### Usage:
