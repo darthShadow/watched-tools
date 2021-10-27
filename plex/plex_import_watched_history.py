@@ -8,8 +8,9 @@
 import json
 import time
 import logging
-from typing import Iterator, Union
+from typing import Iterator
 from collections import defaultdict
+from xml.etree.ElementTree import Element
 
 import requests
 from urllib3.util.retry import Retry
@@ -118,11 +119,10 @@ def _get_session():
 
 
 # noinspection PyProtectedMember
-def _section_item_iterator(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Union[
-        plexapi.video.Movie, plexapi.video.Show]]:
+def _section_item_iterator(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Element]:
     key = f"/library/sections/{plex_section.key}/all?includeGuids=1&type={plexapi.utils.searchType(libtype)}"
     container_start = 0
-    container_size = plexapi.X_PLEX_CONTAINER_SIZE
+    container_size = plexapi.server.X_PLEX_CONTAINER_SIZE
     total_size = plex_section._totalViewSize
     while total_size is None or container_start <= total_size:
         params = {
@@ -137,15 +137,14 @@ def _section_item_iterator(plex_section: plexapi.library.LibrarySection, libtype
         logger.debug(f"Loaded {plex_section.title}: {container_start}/{total_size}")
 
 
-def _batch_section_get(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Union[
-        plexapi.video.Movie, plexapi.video.Show]]:
+def _batch_section_get(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Element]:
     yield from _section_item_iterator(plex_section, libtype)
 
 
-def _get_guids(element):
+def _get_guids(element: Element):
     guids = []
 
-    for child in element.children:
+    for child in element:
         if child.tag == plexapi.media.Guid.TAG:
             guid_id = child.attrib.get("id")
             if guid_id:
@@ -159,7 +158,6 @@ def _cache_guid_rating_key_mappings(plex_server: plexapi.server.PlexServer):
 
     for section in sections:
         if isinstance(section, plexapi.library.MovieSection):
-            movie: plexapi.video.Movie
             for movie in _batch_section_get(section, "movie"):
                 _MOVIE_GUID_RATING_KEY_MAPPING[movie.attrib['guid']].append(movie.attrib['ratingKey'])
                 guid: plexapi.media.Guid
@@ -167,16 +165,14 @@ def _cache_guid_rating_key_mappings(plex_server: plexapi.server.PlexServer):
                     _MOVIE_GUID_RATING_KEY_MAPPING[guid].append(movie.attrib['ratingKey'])
 
         elif isinstance(section, plexapi.library.ShowSection):
-            show: plexapi.video.Show
             for show in _batch_section_get(section, "show"):
                 _SHOW_GUID_RATING_KEY_MAPPING[show.attrib['guid']].append(show.attrib['ratingKey'])
                 guid: plexapi.media.Guid
                 for guid in _get_guids(show):
                     _SHOW_GUID_RATING_KEY_MAPPING[guid].append(show.attrib['ratingKey'])
 
-            episode: plexapi.video.Episode
             for episode in _batch_section_get(section, "episode"):
-                _EPISODE_GUID_RATING_KEY_MAPPING[episode.guid].append(episode.attrib['ratingKey'])
+                _EPISODE_GUID_RATING_KEY_MAPPING[episode.attrib['guid']].append(episode.attrib['ratingKey'])
                 guid: plexapi.media.Guid
                 for guid in _get_guids(episode):
                     _EPISODE_GUID_RATING_KEY_MAPPING[guid].append(episode.attrib['ratingKey'])

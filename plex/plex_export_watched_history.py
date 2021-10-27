@@ -18,8 +18,9 @@ import json
 import time
 import logging
 import collections
+from typing import Iterator
 from urllib.parse import urlparse
-from typing import Iterator, Union
+from xml.etree.ElementTree import Element
 
 import requests
 from urllib3.util.retry import Retry
@@ -51,8 +52,8 @@ LOG_FORMAT = \
 LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG_LEVEL = logging.INFO
 
-plexapi.TIMEOUT = 60
-plexapi.X_PLEX_CONTAINER_SIZE = 1000
+plexapi.server.TIMEOUT = 60
+plexapi.server.X_PLEX_CONTAINER_SIZE = 1000
 plexapi.base.USER_DONT_RELOAD_FOR_KEYS.update({
     'guid', 'guids', 'duration', 'title', 'userRating', 'viewCount', 'viewOffset'})
 
@@ -152,11 +153,10 @@ def _get_session():
 
 
 # noinspection PyProtectedMember
-def _section_item_iterator(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Union[
-        plexapi.video.Movie, plexapi.video.Show]]:
+def _section_item_iterator(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Element]:
     key = f"/library/sections/{plex_section.key}/all?includeGuids=1&type={plexapi.utils.searchType(libtype)}"
     container_start = 0
-    container_size = plexapi.X_PLEX_CONTAINER_SIZE
+    container_size = plexapi.server.X_PLEX_CONTAINER_SIZE
     total_size = plex_section._totalViewSize
     while total_size is None or container_start <= total_size:
         params = {
@@ -171,8 +171,7 @@ def _section_item_iterator(plex_section: plexapi.library.LibrarySection, libtype
         logger.debug(f"Loaded {plex_section.title}: {container_start}/{total_size}")
 
 
-def _batch_section_get(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Union[
-        plexapi.video.Movie, plexapi.video.Show]]:
+def _batch_section_get(plex_section: plexapi.library.LibrarySection, libtype: str) -> Iterator[Element]:
     yield from _section_item_iterator(plex_section, libtype)
 
 
@@ -181,16 +180,13 @@ def _cache_rating_key_guid_mappings(plex_server: plexapi.server.PlexServer):
 
     for section in sections:
         if isinstance(section, plexapi.library.MovieSection):
-            movie: plexapi.video.Movie
             for movie in _batch_section_get(section, "movie"):
                 _MOVIE_RATING_KEY_GUID_MAPPING[movie.attrib['ratingKey']] = movie.attrib['guid']
 
         elif isinstance(section, plexapi.library.ShowSection):
-            show: plexapi.video.Show
             for show in _batch_section_get(section, "show"):
                 _SHOW_RATING_KEY_GUID_MAPPING[show.attrib['ratingKey']] = show.attrib['guid']
 
-            episode: plexapi.video.Episode
             for episode in _batch_section_get(section, "episode"):
                 _EPISODE_RATING_KEY_GUID_MAPPING[episode.attrib['ratingKey']] = episode.attrib['guid']
 
