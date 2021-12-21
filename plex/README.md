@@ -12,8 +12,9 @@ Pending Items:
 
 ### Requirements
 
-* Plex with all libraries using the new TV & Movie agents
-* PlexAPI == 4.7.2 (Install/Update via: `python3 -m pip install --force -U --user PlexAPI==4.7.2`)
+* Plex with all libraries using the new TV & Movie agents (Only for Import. Export supports both Old & New Agents)
+* PlexAPI == 4.7.2 (Install/Update via: `python3 -m pip install --force -U PlexAPI==4.7.2`)
+* Diskcache == 5.3.0 (Install/Update via `python3 -m pip install --force -U diskcache==5.3.0`)
 * Python >= 3.8
 
 ### Usage:
@@ -26,13 +27,14 @@ Pending Items:
     * `check_users` (If you want to export/import only specific users)
     * `watched_history` (If you want to specify a custom location/file)
     * `use_cache` (Only set it to `true` if you are exporting/importing more than a handful of users)
+    * `cache_dir` (**OPTIONAL**)
 
 * Example value of `check_users`: `"abc,xyz,def"` (These must be the usernames of the required users. The matching is **case-insensitive**.)
 
 * Export Watched History for Server:
     `PLEXAPI_CONFIG_PATH="<path_to_sync.ini>" python3 plex_export_watched_history.py`
 
-* Export Watched History for Server:
+* Import Watched History for Server:
     `PLEXAPI_CONFIG_PATH="<path_to_sync.ini>" python3 plex_import_watched_history.py`
 
 ### Debugging:

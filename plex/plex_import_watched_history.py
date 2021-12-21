@@ -8,8 +8,10 @@
 import json
 import time
 import logging
+import tempfile
 from typing import Iterator
-from collections import defaultdict
+from diskcache import Index
+from urllib.parse import urlparse
 from xml.etree.ElementTree import Element
 
 import requests
@@ -25,7 +27,6 @@ import plexapi.server
 import plexapi.library
 import plexapi.exceptions
 
-
 PLEX_URL = ""
 PLEX_TOKEN = ""
 WATCHED_HISTORY = ""
@@ -35,6 +36,7 @@ PLEX_REQUESTS_SLEEP = 0
 CHECK_USERS = [
 ]
 USE_CACHE = False
+CACHE_DIR = ""
 
 LOG_FORMAT = \
     "[%(name)s][%(process)05d][%(asctime)s][%(levelname)-8s][%(funcName)-15s]" \
@@ -42,15 +44,16 @@ LOG_FORMAT = \
 LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG_LEVEL = logging.INFO
 
+METADATA_URL = "https://metadata.appln.tech"
+MATCHES_URL = "/library/metadata/matches"
+
 plexapi.server.TIMEOUT = 60
 plexapi.server.X_PLEX_CONTAINER_SIZE = 1000
 plexapi.base.USER_DONT_RELOAD_FOR_KEYS.update({
     'guid', 'guids', 'duration', 'title', 'userRating', 'viewCount', 'viewOffset'})
 
-_SHOW_GUID_RATING_KEY_MAPPING = defaultdict(list)
-_MOVIE_GUID_RATING_KEY_MAPPING = defaultdict(list)
-_EPISODE_GUID_RATING_KEY_MAPPING = defaultdict(list)
-
+cache = Index()
+session = requests.Session()
 logger = logging.getLogger("PlexWatchedHistoryImporter")
 
 
@@ -65,7 +68,7 @@ def _check_plexapi_version():
 
 
 def _load_config():
-    global PLEX_URL, PLEX_TOKEN, WATCHED_HISTORY, CHECK_USERS, LOG_FILE, LOG_LEVEL, USE_CACHE
+    global PLEX_URL, PLEX_TOKEN, WATCHED_HISTORY, CHECK_USERS, LOG_FILE, LOG_LEVEL, USE_CACHE, CACHE_DIR
     if PLEX_URL == "":
         PLEX_URL = _get_config_str("sync.dst_url")
     if PLEX_TOKEN == "":
@@ -83,6 +86,9 @@ def _load_config():
     use_cache = plexapi.utils.cast(bool, _get_config_str("sync.use_cache").lower())
     if use_cache:
         USE_CACHE = True
+    cache_dir = _get_config_str("sync.cache_dir")
+    if CACHE_DIR == "":
+        CACHE_DIR = cache_dir
 
 
 def _setup_logger():
@@ -102,7 +108,8 @@ def _setup_logger():
     logger.addHandler(file_handler)
 
 
-def _get_session():
+def _setup_session():
+    global session
     session = requests.Session()
     retry_strategy = Retry(
         total=10,
@@ -115,7 +122,160 @@ def _get_session():
                                   pool_maxsize=4, pool_block=True)
     session.mount('http://', session_adapter)
     session.mount('https://', session_adapter)
-    return session
+
+
+def _setup_cache():
+    global cache
+
+    cache_dir = tempfile.mkdtemp(prefix='diskcache-')
+    if CACHE_DIR:
+        cache_dir = CACHE_DIR
+
+    logger.info(f"Using Cache Directory: {cache_dir}")
+
+    cache = {
+        'SHOW_METADATA_MAPPING': Index(f"{cache_dir}/show_metadata_mapping.cache"),
+        'SHOW_GUID_RATING_KEY_MAPPING': Index(f"{cache_dir}/show_guid_rating_key_mapping.cache"),
+        'MOVIE_GUID_RATING_KEY_MAPPING': Index(f"{cache_dir}/movie_guid_rating_key_mapping.cache"),
+        'EPISODE_GUID_RATING_KEY_MAPPING': Index(f"{cache_dir}/episode_guid_rating_key_mapping.cache"),
+    }
+
+    cache['SHOW_GUID_RATING_KEY_MAPPING'].clear()
+    cache['MOVIE_GUID_RATING_KEY_MAPPING'].clear()
+    cache['EPISODE_GUID_RATING_KEY_MAPPING'].clear()
+
+
+def _fetch_movie_metadata(tmdb_id: str) -> dict:
+    movie_fetch_params = {
+        'type': 1,
+        'excludeElements': "Media",
+        'guid': f"com.plexapp.agents.themoviedb://{tmdb_id}?lang=en",
+    }
+
+    response = session.post(METADATA_URL + MATCHES_URL, json=movie_fetch_params)
+    if response.status_code != 200:
+        print(response.__dict__)
+        return {}
+
+    metadata = response.json()
+    if len(metadata.get("MediaContainer", {}).get("Metadata", [])) > 0:
+        return metadata['MediaContainer']['Metadata'][0]
+
+    return {}
+
+
+def _get_movie_guid(tmdb_id: str) -> str:
+    return _fetch_movie_metadata(tmdb_id).get("guid", "")
+
+
+def _fetch_show_metadata(tvdb_id: str) -> dict:
+    cached_show_metadata = cache['SHOW_METADATA_MAPPING'].get(tvdb_id)
+    if cached_show_metadata is not None:
+        return cached_show_metadata
+
+    show_metadata = {}
+
+    show_fetch_params = {
+        'type': 2,
+        'excludeElements': "Media",
+        'guid': f"com.plexapp.agents.thetvdb://{tvdb_id}?lang=en",
+    }
+    response = session.post(METADATA_URL + MATCHES_URL, json=show_fetch_params)
+    if response.status_code != 200:
+        print(response.__dict__)
+        return {}
+
+    metadata = response.json()
+
+    show_rating_key = ""
+    if len(metadata.get("MediaContainer", {}).get("Metadata", [])) > 0:
+        show_rating_key = metadata['MediaContainer']['Metadata'][0]['ratingKey']
+
+    if show_rating_key:
+        params = {
+            'includeChildren': "1",
+            'episodeOrder': "tvdbAiring",
+        }
+        response = session.get(METADATA_URL + f"/library/metadata/{show_rating_key}", params=params)
+        if response.status_code != 200:
+            print(response.__dict__)
+            return {}
+
+        metadata = response.json()
+        show_metadata = metadata['MediaContainer']['Metadata'][0]
+        show_metadata['Seasons'] = {}
+
+    cache['SHOW_METADATA_MAPPING'][tvdb_id] = show_metadata
+    return show_metadata
+
+
+def _get_show_guid(tvdb_id: str) -> str:
+    return _fetch_show_metadata(tvdb_id).get("guid", "")
+
+
+def _get_episode_guid(tvdb_id: str, season_id: str, episode_id: str) -> str:
+    show_metadata = _fetch_show_metadata(tvdb_id)
+    if not show_metadata:
+        return ""
+
+    season_metadata = show_metadata['Seasons'].get(season_id)
+    if season_metadata is None:
+        season_metadata = {}
+
+        season_rating_key = ""
+        for season in show_metadata['Children'].get("Metadata", []):
+            if str(season['index']) == season_id:
+                season_rating_key = season['ratingKey']
+                break
+
+        if season_rating_key:
+            params = {
+                'includeChildren': "1",
+            }
+            response = session.get(METADATA_URL + f"/library/metadata/{season_rating_key}", params=params)
+            if response.status_code != 200:
+                print(response.__dict__)
+                return ""
+
+            metadata = response.json()
+            season_metadata = metadata['MediaContainer']['Metadata'][0]
+
+        cached_show_metadata = cache['SHOW_METADATA_MAPPING'][tvdb_id]
+        cached_show_metadata['Seasons'][season_id] = season_metadata
+        cache['SHOW_METADATA_MAPPING'][tvdb_id] = cached_show_metadata
+
+    if not season_metadata:
+        return ""
+
+    for episode in season_metadata['Children'].get("Metadata", []):
+        if str(episode['index']) == episode_id:
+            return episode['guid']
+
+    return ""
+
+
+def _convert_to_plex_guid(guid: str, item_type: str) -> str:
+    guid_url = urlparse(guid)
+
+    if guid_url.scheme == "com.plexapp.agents.themoviedb":
+        movie_guid = _get_movie_guid(guid_url.netloc)
+        logger.debug(f"Converted: {item_type}: {guid}: {movie_guid}")
+        return movie_guid
+
+    if guid_url.scheme == "com.plexapp.agents.thetvdb":
+        if item_type == "show":
+            show_guid = _get_show_guid(guid_url.netloc)
+            logger.debug(f"Converted: {item_type}: {guid}: {show_guid}")
+            return show_guid
+        elif item_type == "episode":
+            if len(guid_url.path.split("/")) != 3:
+                return ""
+            _, season_id, episode_id = guid_url.path.split("/")
+            episode_guid = _get_episode_guid(guid_url.netloc, season_id, episode_id)
+            logger.debug(f"Converted: {item_type}: {guid}: {episode_guid}")
+            return episode_guid
+
+    return guid
 
 
 # noinspection PyProtectedMember
@@ -159,23 +319,50 @@ def _cache_guid_rating_key_mappings(plex_server: plexapi.server.PlexServer):
     for section in sections:
         if isinstance(section, plexapi.library.MovieSection):
             for movie in _batch_section_get(section, "movie"):
-                _MOVIE_GUID_RATING_KEY_MAPPING[movie.attrib['guid']].append(movie.attrib['ratingKey'])
+                movie_guid = _convert_to_plex_guid(movie.attrib['guid'], "movie")
+                if movie_guid == "":
+                    movie_guid = movie.attrib['guid']
+
+                movie_guid_rating_keys = cache['MOVIE_GUID_RATING_KEY_MAPPING'].get(movie_guid, [])
+                movie_guid_rating_keys.append(int(movie.attrib['ratingKey']))
+                cache['MOVIE_GUID_RATING_KEY_MAPPING'][movie_guid] = movie_guid_rating_keys
+
                 guid: plexapi.media.Guid
                 for guid in _get_guids(movie):
-                    _MOVIE_GUID_RATING_KEY_MAPPING[guid].append(movie.attrib['ratingKey'])
+                    guid_rating_keys = cache['MOVIE_GUID_RATING_KEY_MAPPING'].get(guid, [])
+                    guid_rating_keys.append(int(movie.attrib['ratingKey']))
+                    cache['MOVIE_GUID_RATING_KEY_MAPPING'][guid] = guid_rating_keys
 
         elif isinstance(section, plexapi.library.ShowSection):
             for show in _batch_section_get(section, "show"):
-                _SHOW_GUID_RATING_KEY_MAPPING[show.attrib['guid']].append(show.attrib['ratingKey'])
+                show_guid = _convert_to_plex_guid(show.attrib['guid'], "show")
+                if show_guid == "":
+                    show_guid = show.attrib['guid']
+
+                show_guid_rating_keys = cache['SHOW_GUID_RATING_KEY_MAPPING'].get(show_guid, [])
+                show_guid_rating_keys.append(int(show.attrib['ratingKey']))
+                cache['SHOW_GUID_RATING_KEY_MAPPING'][show_guid] = show_guid_rating_keys
+
                 guid: plexapi.media.Guid
                 for guid in _get_guids(show):
-                    _SHOW_GUID_RATING_KEY_MAPPING[guid].append(show.attrib['ratingKey'])
+                    guid_rating_keys = cache['SHOW_GUID_RATING_KEY_MAPPING'].get(guid, [])
+                    guid_rating_keys.append(int(show.attrib['ratingKey']))
+                    cache['SHOW_GUID_RATING_KEY_MAPPING'][guid] = guid_rating_keys
 
             for episode in _batch_section_get(section, "episode"):
-                _EPISODE_GUID_RATING_KEY_MAPPING[episode.attrib['guid']].append(episode.attrib['ratingKey'])
+                episode_guid = _convert_to_plex_guid(episode.attrib['guid'], "episode")
+                if episode_guid == "":
+                    episode_guid = episode.attrib['guid']
+
+                episode_guid_rating_keys = cache['EPISODE_GUID_RATING_KEY_MAPPING'].get(episode_guid, [])
+                episode_guid_rating_keys.append(int(episode.attrib['ratingKey']))
+                cache['EPISODE_GUID_RATING_KEY_MAPPING'][episode_guid] = episode_guid_rating_keys
+
                 guid: plexapi.media.Guid
                 for guid in _get_guids(episode):
-                    _EPISODE_GUID_RATING_KEY_MAPPING[guid].append(episode.attrib['ratingKey'])
+                    guid_rating_keys = cache['EPISODE_GUID_RATING_KEY_MAPPING'].get(guid, [])
+                    guid_rating_keys.append(int(episode.attrib['ratingKey']))
+                    cache['EPISODE_GUID_RATING_KEY_MAPPING'][guid] = guid_rating_keys
 
     return
 
@@ -207,32 +394,41 @@ def _get_username(user):
     return username
 
 
-def _get_rating_keys(server, rating_key_guid_mapping, guid):
-    if guid not in rating_key_guid_mapping:
-        items = server.library.search(guid=guid)
-        rating_key_guid_mapping[guid] = [item.ratingKey for item in items]
+def _get_rating_keys(server, item_type, guid):
+    rating_keys = None
 
-    return rating_key_guid_mapping[guid]
+    if item_type == "movie":
+        rating_keys = cache['MOVIE_GUID_RATING_KEY_MAPPING'].get(guid)
+    elif item_type == "show":
+        rating_keys = cache['SHOW_GUID_RATING_KEY_MAPPING'].get(guid)
+    elif item_type == "episode":
+        rating_keys = cache['EPISODE_GUID_RATING_KEY_MAPPING'].get(guid)
 
+    if rating_keys is not None:
+        return rating_keys
 
-def _reload_item(item):
-    item.reload(
-        checkFiles=False, includeAllConcerts=False, includeBandwidths=False,
-        includeChapters=False, includeChildren=False, includeConcerts=False,
-        includeExternalMedia=False, includeExtras=False, includeFields='',
-        includeGeolocation=False, includeLoudnessRamps=False, includeMarkers=False,
-        includeOnDeck=False, includePopularLeaves=False, includePreferences=False,
-        includeRelated=False, includeRelatedCount=0, includeReviews=False,
-        includeStations=False)
-    return
+    items = server.library.search(guid=guid)
+    rating_keys = [int(item.ratingKey) for item in items]
+
+    if item_type == "movie":
+        cache['MOVIE_GUID_RATING_KEY_MAPPING'][guid] = rating_keys
+    elif item_type == "show":
+        cache['SHOW_GUID_RATING_KEY_MAPPING'][guid] = rating_keys
+    elif item_type == "episode":
+        cache['EPISODE_GUID_RATING_KEY_MAPPING'][guid] = rating_keys
+
+    return rating_keys
 
 
 def _set_movie_section_watched_history(server, movie_history):
     for movie_guid, movie_item_history in movie_history.items():
-        rating_keys = _get_rating_keys(server, _MOVIE_GUID_RATING_KEY_MAPPING, movie_guid)
+        rating_keys = _get_rating_keys(server, "movie", movie_guid)
         for rating_key in rating_keys:
-            item = server.fetchItem(rating_key)
-            # _reload_item(item)
+            try:
+                item = server.fetchItem(rating_key)
+            except plexapi.exceptions.NotFound:
+                logger.warning(f"Missing Movie: {movie_item_history['title']}: {movie_guid}")
+                continue
             if not _cast(int, item.duration) > 0:
                 logger.warning(f"Invalid Movie Duration: {item.title}: {item.duration}")
                 continue
@@ -258,10 +454,13 @@ def _set_movie_section_watched_history(server, movie_history):
 
 def _set_show_section_watched_history(server, show_history):
     for show_guid, show_item_history in show_history.items():
-        rating_keys = _get_rating_keys(server, _SHOW_GUID_RATING_KEY_MAPPING, show_guid)
+        rating_keys = _get_rating_keys(server, "show", show_guid)
         for rating_key in rating_keys:
-            item = server.fetchItem(rating_key)
-            # _reload_item(item)
+            try:
+                item = server.fetchItem(rating_key)
+            except plexapi.exceptions.NotFound:
+                logger.warning(f"Missing Show: {show_item_history['title']}: {show_guid}")
+                continue
             if show_item_history['watched'] and not item.isWatched:
                 logger.debug(f"Watching Show: {item.title}")
                 item.markWatched()
@@ -269,10 +468,13 @@ def _set_show_section_watched_history(server, show_history):
                 logger.debug(f"Rating Show: {item.title}: {show_item_history['userRating']}")
                 item.rate(show_item_history['userRating'])
         for episode_guid, episode_item_history in show_item_history['episodes'].items():
-            rating_keys = _get_rating_keys(server, _EPISODE_GUID_RATING_KEY_MAPPING, episode_guid)
+            rating_keys = _get_rating_keys(server, "episode", episode_guid)
             for rating_key in rating_keys:
-                item = server.fetchItem(rating_key)
-                # _reload_item(item)
+                try:
+                    item = server.fetchItem(rating_key)
+                except plexapi.exceptions.NotFound:
+                    logger.warning(f"Missing Episode: {episode_item_history['title']}: {episode_guid}")
+                    continue
                 if not _cast(int, item.duration) > 0:
                     logger.warning(f"Invalid Episode Duration: {item.title}: {item.duration}")
                     continue
@@ -308,7 +510,10 @@ def main():
 
     _setup_logger()
 
-    session = _get_session()
+    _setup_session()
+
+    _setup_cache()
+
     plex_server = plexapi.server.PlexServer(PLEX_URL, PLEX_TOKEN, session=session, timeout=60)
     logger.info(f"Plex Server: {plex_server.friendlyName}: {plex_server.version}")
 
@@ -357,7 +562,7 @@ def main():
         user_server_token = user.get_token(plex_server.machineIdentifier)
 
         try:
-            session = _get_session()
+            _setup_session()
             user_server = plexapi.server.PlexServer(PLEX_URL, user_server_token, session=session, timeout=60)
         except plexapi.exceptions.Unauthorized:
             # This should only happen when no libraries are shared
