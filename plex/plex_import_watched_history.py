@@ -449,7 +449,7 @@ def _set_movie_section_watched_history(server, movie_history):
                 item.updateTimeline(view_offset)
             if movie_item_history['userRating'] != "":
                 logger.debug(f"Rating Movie: {item.title}: {movie_item_history['userRating']}")
-                item.rate(movie_item_history['userRating'])
+                item.rate(int(movie_item_history['userRating']))
 
 
 def _set_show_section_watched_history(server, show_history):
@@ -466,7 +466,7 @@ def _set_show_section_watched_history(server, show_history):
                 item.markWatched()
             if show_item_history['userRating'] != "":
                 logger.debug(f"Rating Show: {item.title}: {show_item_history['userRating']}")
-                item.rate(show_item_history['userRating'])
+                item.rate(int(show_item_history['userRating']))
         for episode_guid, episode_item_history in show_item_history['episodes'].items():
             rating_keys = _get_rating_keys(server, "episode", episode_guid)
             for rating_key in rating_keys:
@@ -495,7 +495,7 @@ def _set_show_section_watched_history(server, show_history):
                     item.updateTimeline(view_offset)
                 if episode_item_history['userRating'] != "":
                     logger.debug(f"Rating Episode: {item.title}: {episode_item_history['userRating']}")
-                    item.rate(episode_item_history['userRating'])
+                    item.rate(int(episode_item_history['userRating']))
 
 
 def _set_user_server_watched_history(server, watched_history):
