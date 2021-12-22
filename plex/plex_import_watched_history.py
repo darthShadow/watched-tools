@@ -62,7 +62,7 @@ def _get_config_str(key):
 
 
 def _check_plexapi_version():
-    if plexapi.VERSION != "4.7.2":
+    if plexapi.VERSION != "4.8.0":
         print("Please install PlexAPI Version: 4.7.2")
         raise Exception(f"Unsupported PlexAPI Version: {plexapi.VERSION}")
 
@@ -394,6 +394,14 @@ def _get_username(user):
     return username
 
 
+def _update_timeline(item, view_offset):
+    try:
+        item.updateTimeline(view_offset)
+    except:
+        logger.exception(f"Updating Item Timeline: {item.title}: {view_offset}")
+    return
+
+
 def _get_rating_keys(server, item_type, guid):
     rating_keys = None
 
@@ -442,14 +450,14 @@ def _set_movie_section_watched_history(server, movie_history):
             if movie_item_history.get("viewPercent", 0.0) > 0.0:
                 view_offset = item.duration * movie_item_history['viewPercent']
                 logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
-                item.updateTimeline(view_offset)
+                _update_timeline(item, view_offset)
             elif movie_item_history['viewOffset'] != 0:
                 view_offset = movie_item_history['viewOffset']
                 logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
-                item.updateTimeline(view_offset)
+                _update_timeline(item, view_offset)
             if movie_item_history['userRating'] != "":
                 logger.debug(f"Rating Movie: {item.title}: {movie_item_history['userRating']}")
-                item.rate(int(movie_item_history['userRating']))
+                item.rate(float(movie_item_history['userRating']))
 
 
 def _set_show_section_watched_history(server, show_history):
@@ -466,7 +474,7 @@ def _set_show_section_watched_history(server, show_history):
                 item.markWatched()
             if show_item_history['userRating'] != "":
                 logger.debug(f"Rating Show: {item.title}: {show_item_history['userRating']}")
-                item.rate(int(show_item_history['userRating']))
+                item.rate(float(show_item_history['userRating']))
         for episode_guid, episode_item_history in show_item_history['episodes'].items():
             rating_keys = _get_rating_keys(server, "episode", episode_guid)
             for rating_key in rating_keys:
@@ -488,14 +496,14 @@ def _set_show_section_watched_history(server, show_history):
                 if episode_item_history.get("viewPercent", 0.0) > 0.0:
                     view_offset = item.duration * episode_item_history['viewPercent']
                     logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
-                    item.updateTimeline(view_offset)
+                    _update_timeline(item, view_offset)
                 elif episode_item_history['viewOffset'] != 0:
                     view_offset = episode_item_history['viewOffset']
                     logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
-                    item.updateTimeline(view_offset)
+                    _update_timeline(item, view_offset)
                 if episode_item_history['userRating'] != "":
                     logger.debug(f"Rating Episode: {item.title}: {episode_item_history['userRating']}")
-                    item.rate(int(episode_item_history['userRating']))
+                    item.rate(float(episode_item_history['userRating']))
 
 
 def _set_user_server_watched_history(server, watched_history):
