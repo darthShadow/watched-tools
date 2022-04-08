@@ -97,8 +97,8 @@ def _get_config_str(key):
 
 
 def _check_plexapi_version():
-    if plexapi.VERSION != "4.7.2":
-        print("Please install PlexAPI Version: 4.7.2")
+    if plexapi.VERSION != "4.10.1":
+        print("Please install PlexAPI Version: 4.10.1")
         raise Exception(f"Unsupported PlexAPI Version: {plexapi.VERSION}")
 
 
