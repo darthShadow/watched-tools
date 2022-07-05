@@ -2,9 +2,6 @@
 # -*- coding: utf-8 -*-
 
 
-# python3 -m pip install --force -U --user PlexAPI
-
-
 """
 Metadata to be handled:
 * Audiobooks
@@ -17,6 +14,7 @@ import copy
 import json
 import time
 import logging
+import datetime
 import tempfile
 from typing import Iterator
 from diskcache import Index
@@ -48,11 +46,11 @@ CHECK_USERS = [
 ]
 USE_CACHE = False
 CACHE_DIR = ""
+DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 LOG_FORMAT = \
     "[%(name)s][%(process)05d][%(asctime)s][%(levelname)-8s][%(funcName)-15s]" \
     " %(message)s"
-LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG_LEVEL = logging.INFO
 
 METADATA_URL = "https://metadata.appln.tech"
@@ -97,8 +95,8 @@ def _get_config_str(key):
 
 
 def _check_plexapi_version():
-    if plexapi.VERSION != "4.10.1":
-        print("Please install PlexAPI Version: 4.10.1")
+    if plexapi.VERSION != "4.11.2":
+        print("Please install PlexAPI Version: 4.11.2")
         raise Exception(f"Unsupported PlexAPI Version: {plexapi.VERSION}")
 
 
@@ -135,7 +133,7 @@ def _setup_logger():
     logger.propagate = False
 
     detailed_formatter = logging.Formatter(fmt=LOG_FORMAT,
-                                           datefmt=LOG_DATE_FORMAT)
+                                           datefmt=DATETIME_FORMAT)
     file_handler = logging.FileHandler(filename=LOG_FILE, mode="a+")
     file_handler.setFormatter(detailed_formatter)
     file_handler.setLevel(LOG_LEVEL)
@@ -367,6 +365,13 @@ def _cache_rating_key_guid_mappings(plex_server: plexapi.server.PlexServer):
 
 
 def _cast(func, value):
+    if func == "date_string":
+        if isinstance(value, datetime.datetime):
+            return value.strftime(DATETIME_FORMAT)
+        else:
+            return datetime.datetime(
+                year=1000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0).strftime(DATETIME_FORMAT)
+
     if value is None:
         return func()
 
@@ -563,6 +568,8 @@ def _get_movie_section_watched_history(section, movie_history):
                 'userRating': _cast(str, movie.userRating),
                 'viewPercent': _get_view_percent(_cast(int, movie.viewOffset),
                                                  movie_duration),
+                'lastRatedAt': _cast("date_string", movie.lastRatedAt),
+                'lastViewedAt': _cast("date_string", movie.lastViewedAt),
             })
         else:
             logger.debug(f"Partially Watched Movie: {movie.title} [{movie_guid}]")
@@ -581,6 +588,8 @@ def _get_movie_section_watched_history(section, movie_history):
                 'userRating': _cast(str, movie.userRating),
                 'viewPercent': _get_view_percent(_cast(int, movie.viewOffset),
                                                  movie_duration),
+                'lastRatedAt': _cast("date_string", movie.lastRatedAt),
+                'lastViewedAt': _cast("date_string", movie.lastViewedAt),
             })
 
 
@@ -599,6 +608,8 @@ def _get_show_section_watched_history(section, show_history):
                 'title': _cast(str, show.title),
                 'watched': _cast(bool, show.isWatched),
                 'userRating': _cast(str, show.userRating),
+                'lastRatedAt': _cast("date_string", show.lastRatedAt),
+                'lastViewedAt': _cast("date_string", show.lastViewedAt),
             })
             for episode in show.episodes(viewCount__gt=0):
                 episode_guid = _get_guid("episode", episode)
@@ -619,6 +630,8 @@ def _get_show_section_watched_history(section, show_history):
                     'userRating': _cast(str, episode.userRating),
                     'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
                                                      episode_duration),
+                    'lastRatedAt': _cast("date_string", episode.lastRatedAt),
+                    'lastViewedAt': _cast("date_string", episode.lastViewedAt),
                 })
         else:
             logger.debug(f"Partially Watched Show: {show.title} [{show_guid}]")
@@ -633,6 +646,8 @@ def _get_show_section_watched_history(section, show_history):
                 'title': _cast(str, show.title),
                 'watched': _cast(bool, show.isWatched),
                 'userRating': _cast(str, show.userRating),
+                'lastRatedAt': _cast("date_string", show.lastRatedAt),
+                'lastViewedAt': _cast("date_string", show.lastViewedAt),
             })
             for episode in show.episodes(viewCount__gt=0):
                 episode_guid = _get_guid("episode", episode)
@@ -653,6 +668,8 @@ def _get_show_section_watched_history(section, show_history):
                     'userRating': _cast(str, episode.userRating),
                     'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
                                                      episode_duration),
+                    'lastRatedAt': _cast("date_string", episode.lastRatedAt),
+                    'lastViewedAt': _cast("date_string", episode.lastViewedAt),
                 })
             for episode in show.episodes(viewOffset__gt=0):
                 episode_guid = _get_guid("episode", episode)
@@ -673,6 +690,8 @@ def _get_show_section_watched_history(section, show_history):
                     'userRating': _cast(str, episode.userRating),
                     'viewPercent': _get_view_percent(_cast(int, episode.viewOffset),
                                                      episode_duration),
+                    'lastRatedAt': _cast("date_string", episode.lastRatedAt),
+                    'lastViewedAt': _cast("date_string", episode.lastViewedAt),
                 })
         show_history[show_guid] = show_item_history
 

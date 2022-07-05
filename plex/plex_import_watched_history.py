@@ -2,12 +2,10 @@
 # -*- coding: utf-8 -*-
 
 
-# python3 -m pip install --force -U --user PlexAPI
-
-
 import json
 import time
 import logging
+import datetime
 import tempfile
 from typing import Iterator
 from diskcache import Index
@@ -27,6 +25,7 @@ import plexapi.server
 import plexapi.library
 import plexapi.exceptions
 
+
 PLEX_URL = ""
 PLEX_TOKEN = ""
 WATCHED_HISTORY = ""
@@ -37,11 +36,11 @@ CHECK_USERS = [
 ]
 USE_CACHE = False
 CACHE_DIR = ""
+DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 LOG_FORMAT = \
     "[%(name)s][%(process)05d][%(asctime)s][%(levelname)-8s][%(funcName)-15s]" \
     " %(message)s"
-LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG_LEVEL = logging.INFO
 
 METADATA_URL = "https://metadata.appln.tech"
@@ -62,8 +61,8 @@ def _get_config_str(key):
 
 
 def _check_plexapi_version():
-    if plexapi.VERSION != "4.10.1":
-        print("Please install PlexAPI Version: 4.10.1")
+    if plexapi.VERSION != "4.11.2":
+        print("Please install PlexAPI Version: 4.11.2")
         raise Exception(f"Unsupported PlexAPI Version: {plexapi.VERSION}")
 
 
@@ -100,7 +99,7 @@ def _setup_logger():
     logger.propagate = False
 
     detailed_formatter = logging.Formatter(fmt=LOG_FORMAT,
-                                           datefmt=LOG_DATE_FORMAT)
+                                           datefmt=DATETIME_FORMAT)
     file_handler = logging.FileHandler(filename=LOG_FILE, mode="a+")
     file_handler.setFormatter(detailed_formatter)
     file_handler.setLevel(LOG_LEVEL)
@@ -368,6 +367,13 @@ def _cache_guid_rating_key_mappings(plex_server: plexapi.server.PlexServer):
 
 
 def _cast(func, value):
+    if func == "date_string":
+        if isinstance(value, datetime.datetime):
+            return value.strftime(DATETIME_FORMAT)
+        else:
+            return datetime.datetime(
+                year=1000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0).strftime(DATETIME_FORMAT)
+
     if value is None:
         return func()
 
@@ -432,78 +438,122 @@ def _set_movie_section_watched_history(server, movie_history):
     for movie_guid, movie_item_history in movie_history.items():
         rating_keys = _get_rating_keys(server, "movie", movie_guid)
         for rating_key in rating_keys:
+            item: plexapi.video.Movie
             try:
                 item = server.fetchItem(rating_key)
             except plexapi.exceptions.NotFound:
                 logger.warning(f"Missing Movie: {movie_item_history['title']}: {movie_guid}")
                 continue
+
             if not _cast(int, item.duration) > 0:
                 logger.warning(f"Invalid Movie Duration: {item.title}: {item.duration}")
                 continue
-            if movie_item_history['watched'] and not item.isWatched:
-                logger.debug(f"Watching Movie: {item.title}")
-                item.markWatched()
+
             if movie_item_history['viewCount'] > item.viewCount:
                 for _ in range(movie_item_history['viewCount'] - item.viewCount):
                     logger.debug(f"Watching Movie: {item.title}")
                     item.markWatched()
-            if movie_item_history.get("viewPercent", 0.0) > 0.0:
-                view_offset = item.duration * movie_item_history['viewPercent']
-                logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
-                _update_timeline(item, view_offset)
-            elif movie_item_history['viewOffset'] != 0:
-                view_offset = movie_item_history['viewOffset']
-                logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
-                _update_timeline(item, view_offset)
+
+            item_last_viewed_at = _cast("date_string", item.lastViewedAt)
+            if datetime.datetime.strptime(item_last_viewed_at, DATETIME_FORMAT) <= datetime.datetime.strptime(
+                    movie_item_history['lastViewedAt'], DATETIME_FORMAT):
+                if movie_item_history['watched'] and not item.isWatched:
+                    logger.debug(f"Watching Movie: {item.title}")
+                    item.markWatched()
+                if movie_item_history.get("viewPercent", 0.0) > 0.0:
+                    view_offset = item.duration * movie_item_history['viewPercent']
+                    logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
+                    _update_timeline(item, view_offset)
+                elif movie_item_history['viewOffset'] != 0:
+                    view_offset = movie_item_history['viewOffset']
+                    logger.debug(f"Updating Movie Timeline: {item.title}: {view_offset}")
+                    _update_timeline(item, view_offset)
+            else:
+                logger.debug(f"Skipping Updating Watch Status of Movie: {item.title}")
+
             if movie_item_history['userRating'] != "":
-                logger.debug(f"Rating Movie: {item.title}: {movie_item_history['userRating']}")
-                item.rate(float(movie_item_history['userRating']))
+                item_last_rated_at = _cast("date_string", item.lastRatedAt)
+                if datetime.datetime.strptime(item_last_rated_at, DATETIME_FORMAT) <= datetime.datetime.strptime(
+                        movie_item_history['lastRatedAt'], DATETIME_FORMAT):
+                    logger.debug(f"Rating Movie: {item.title}: {movie_item_history['userRating']}")
+                    item.rate(float(movie_item_history['userRating']))
+                else:
+                    logger.debug(f"Skipping Updating Rating of Episode: {item.title}")
 
 
 def _set_show_section_watched_history(server, show_history):
     for show_guid, show_item_history in show_history.items():
         rating_keys = _get_rating_keys(server, "show", show_guid)
         for rating_key in rating_keys:
+            item: plexapi.video.Show
             try:
                 item = server.fetchItem(rating_key)
             except plexapi.exceptions.NotFound:
                 logger.warning(f"Missing Show: {show_item_history['title']}: {show_guid}")
                 continue
-            if show_item_history['watched'] and not item.isWatched:
-                logger.debug(f"Watching Show: {item.title}")
-                item.markWatched()
+
+            item_last_viewed_at = _cast("date_string", item.lastViewedAt)
+            if datetime.datetime.strptime(item_last_viewed_at, DATETIME_FORMAT) <= datetime.datetime.strptime(
+                    show_item_history['lastViewedAt'], DATETIME_FORMAT):
+                if show_item_history['watched'] and not item.isWatched:
+                    logger.debug(f"Watching Show: {item.title}")
+                    item.markWatched()
+            else:
+                logger.debug(f"Skipping Updating Watch Status of Show: {item.title}")
+
             if show_item_history['userRating'] != "":
-                logger.debug(f"Rating Show: {item.title}: {show_item_history['userRating']}")
-                item.rate(float(show_item_history['userRating']))
+                item_last_rated_at = _cast("date_string", item.lastRatedAt)
+                if datetime.datetime.strptime(item_last_rated_at, DATETIME_FORMAT) <= datetime.datetime.strptime(
+                        show_item_history['lastRatedAt'], DATETIME_FORMAT):
+                    logger.debug(f"Rating Show: {item.title}: {show_item_history['userRating']}")
+                    item.rate(float(show_item_history['userRating']))
+                else:
+                    logger.debug(f"Skipping Updating Rating of Show: {item.title}")
+
         for episode_guid, episode_item_history in show_item_history['episodes'].items():
             rating_keys = _get_rating_keys(server, "episode", episode_guid)
             for rating_key in rating_keys:
+                item: plexapi.video.Episode
                 try:
                     item = server.fetchItem(rating_key)
                 except plexapi.exceptions.NotFound:
                     logger.warning(f"Missing Episode: {episode_item_history['title']}: {episode_guid}")
                     continue
+
                 if not _cast(int, item.duration) > 0:
                     logger.warning(f"Invalid Episode Duration: {item.title}: {item.duration}")
                     continue
-                if episode_item_history['watched'] and not item.isWatched:
-                    logger.debug(f"Watching Episode: {item.title}")
-                    item.markWatched()
+
                 if episode_item_history['viewCount'] > item.viewCount:
                     for _ in range(episode_item_history['viewCount'] - item.viewCount):
                         logger.debug(f"Watching Episode: {item.title}")
                         item.markWatched()
-                if episode_item_history.get("viewPercent", 0.0) > 0.0:
-                    view_offset = item.duration * episode_item_history['viewPercent']
-                    logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
-                    _update_timeline(item, view_offset)
-                elif episode_item_history['viewOffset'] != 0:
-                    view_offset = episode_item_history['viewOffset']
-                    logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
-                    _update_timeline(item, view_offset)
+
+                item_last_viewed_at = _cast("date_string", item.lastViewedAt)
+                if datetime.datetime.strptime(item_last_viewed_at, DATETIME_FORMAT) <= datetime.datetime.strptime(
+                        episode_item_history['lastViewedAt'], DATETIME_FORMAT):
+                    if episode_item_history['watched'] and not item.isWatched:
+                        logger.debug(f"Watching Episode: {item.title}")
+                        item.markWatched()
+                    if episode_item_history.get("viewPercent", 0.0) > 0.0:
+                        view_offset = item.duration * episode_item_history['viewPercent']
+                        logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
+                        _update_timeline(item, view_offset)
+                    elif episode_item_history['viewOffset'] != 0:
+                        view_offset = episode_item_history['viewOffset']
+                        logger.debug(f"Updating Episode Timeline: {item.title}: {view_offset}")
+                        _update_timeline(item, view_offset)
+                else:
+                    logger.debug(f"Skipping Updating Watch Status of Episode: {item.title}")
+
                 if episode_item_history['userRating'] != "":
-                    logger.debug(f"Rating Episode: {item.title}: {episode_item_history['userRating']}")
-                    item.rate(float(episode_item_history['userRating']))
+                    item_last_rated_at = _cast("date_string", item.lastRatedAt)
+                    if datetime.datetime.strptime(item_last_rated_at, DATETIME_FORMAT) <= datetime.datetime.strptime(
+                            episode_item_history['lastRatedAt'], DATETIME_FORMAT):
+                        logger.debug(f"Rating Episode: {item.title}: {episode_item_history['userRating']}")
+                        item.rate(float(episode_item_history['userRating']))
+                    else:
+                        logger.debug(f"Skipping Updating Rating of Episode: {item.title}")
 
 
 def _set_user_server_watched_history(server, watched_history):
