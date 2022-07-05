@@ -49,7 +49,7 @@ MATCHES_URL = "/library/metadata/matches"
 plexapi.server.TIMEOUT = 60
 plexapi.server.X_PLEX_CONTAINER_SIZE = 1000
 plexapi.base.USER_DONT_RELOAD_FOR_KEYS.update({
-    'guid', 'guids', 'duration', 'title', 'userRating', 'viewCount', 'viewOffset'})
+    'guid', 'guids', 'duration', 'title', 'userRating', 'viewCount', 'viewOffset', 'lastViewedAt', 'lastRatedAt'})
 
 cache = Index()
 session = requests.Session()
