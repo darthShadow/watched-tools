@@ -112,7 +112,7 @@ def _setup_session():
     session = requests.Session()
     retry_strategy = Retry(
         total=10,
-        backoff_factor=10,
+        backoff_factor=0,
         raise_on_status=True,
         allowed_methods=["GET"],
         status_forcelist=[429, 500, 502, 503, 504],
@@ -595,8 +595,11 @@ def main():
 
         logger.info(f"Processing Owner: {username}")
 
-        user_history = watched_history[username]
-        _set_user_server_watched_history(plex_server, user_history)
+        if username in watched_history:
+            user_history = watched_history[username]
+            _set_user_server_watched_history(plex_server, user_history)
+        else:
+            logger.warning(f"Missing User from Watched History: {username}")
 
     for user_index, user in enumerate(plex_users):
         # TODO: Check for collisions

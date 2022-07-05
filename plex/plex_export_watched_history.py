@@ -148,7 +148,7 @@ def _setup_session():
 
     retry_strategy = Retry(
         total=10,
-        backoff_factor=10,
+        backoff_factor=0,
         raise_on_status=True,
         allowed_methods=["GET"],
         status_forcelist=[429, 500, 502, 503, 504],
