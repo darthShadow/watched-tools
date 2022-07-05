@@ -409,18 +409,23 @@ def _update_timeline(item, view_offset):
 
 
 def _get_rating_keys(server, item_type, guid):
-    rating_keys = None
+    rating_keys = []
 
     if item_type == "movie":
-        rating_keys = cache['MOVIE_GUID_RATING_KEY_MAPPING'].get(guid)
+        rating_keys = cache['MOVIE_GUID_RATING_KEY_MAPPING'].get(guid, [])
     elif item_type == "show":
-        rating_keys = cache['SHOW_GUID_RATING_KEY_MAPPING'].get(guid)
+        rating_keys = cache['SHOW_GUID_RATING_KEY_MAPPING'].get(guid, [])
     elif item_type == "episode":
-        rating_keys = cache['EPISODE_GUID_RATING_KEY_MAPPING'].get(guid)
+        rating_keys = cache['EPISODE_GUID_RATING_KEY_MAPPING'].get(guid, [])
 
-    if rating_keys is not None:
+    if len(rating_keys) > 0:
         return rating_keys
 
+    # If we don't have the rating key in cache, don't search it unless cache is disabled
+    if USE_CACHE:
+        return rating_keys
+
+    # If we don't have a rating key, try to get it from the library
     items = server.library.search(guid=guid)
     rating_keys = [int(item.ratingKey) for item in items]
 
