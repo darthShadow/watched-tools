@@ -1,13 +1,12 @@
 # plex-watched-tools
 Plex Watched Tools.
 
-Exports/Imports the following info for TV & Movie Libraries:
+Exports/Imports the following info for TV & Movie & Audiobook (using the Audnexus Agent) Libraries:
 * Watched Status
 * View Count
 * User Rating
 
 Pending Items:
-* [ ] Audiobooks (Music Libraries)
 * [ ] Playlists (https://github.com/pkkid/python-plexapi/issues/551)
 
 ### Requirements
@@ -28,6 +27,8 @@ Pending Items:
     * `watched_history` (If you want to specify a custom location/file)
     * `use_cache` (Only set it to `true` if you are exporting/importing more than a handful of users)
     * `cache_dir` (**OPTIONAL**)
+    * `plex_sections` (**OPTIONAL**) (If you want to export/import only specific libraries)
+    * `max_processes` (**OPTIONAL**) (If you want to increase the number of processes used for exporting/importing)
 
 * Example value of `check_users`: `"abc,xyz,def"` (These must be the usernames of the required users. The matching is **case-insensitive**.)
 
